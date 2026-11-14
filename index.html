@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AKASCD</title>
+<style>
+:root { --white:#ffffff; --black:#000000; --blue:#a8d4f5; --red:#f5a8a8; --green:#a8e6b8; --yellow:#f6efa6; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--white); color:var(--black); font:16px/1.5 system-ui, Arial, sans-serif; }
+header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:2px solid var(--black); flex-wrap:wrap; gap:10px; }
+.brand { font-weight:700; font-size:1.3rem; }
+nav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+button, .tab { font:inherit; cursor:pointer; border:2px solid var(--black); background:var(--white); color:var(--black); padding:6px 14px; border-radius:6px; }
+button:hover { background:var(--blue); }
+button.main { background:var(--green); font-weight:600; }
+button.main:hover { background:var(--blue); }
+button.bad { background:var(--red); }
+main { max-width:820px; margin:0 auto; padding:24px 20px 60px; }
+.card { border:2px solid var(--black); border-radius:10px; padding:18px; margin-bottom:18px; }
+.card.blue { background:var(--blue); } .card.green { background:var(--green); } .card.red { background:var(--red); }
+h1, h2, h3 { margin:0 0 10px; }
+label { display:block; font-weight:600; margin:10px 0 4px; }
+input, select, textarea { font:inherit; width:100%; padding:8px; border:2px solid var(--black); border-radius:6px; background:var(--white); color:var(--black); }
+textarea { font-family:Consolas, monospace; min-height:260px; }
+.row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.row > * { flex:0 0 auto; }
+.msg { margin-top:10px; font-weight:600; }
+.timer { font-size:2rem; font-weight:700; }
+table { width:100%; border-collapse:collapse; }
+td, th { border:2px solid var(--black); padding:6px 10px; text-align:left; }
+dialog { border:2px solid var(--black); border-radius:10px; padding:20px; width:min(380px, 92vw); }
+dialog::backdrop { background:rgba(0,0,0,.4); }
+.hide { display:none; }
+.stats { display:flex; gap:12px; flex-wrap:wrap; }
+.stat { flex:1 1 120px; border:2px solid var(--black); border-radius:8px; padding:10px; text-align:center; }
+.stat b { display:block; font-size:1.6rem; }
+.note { padding:6px 10px; border:2px solid var(--black); border-radius:6px; margin:6px 0; }
+.note.ok { background:var(--green); }
+.note.no { background:var(--red); }
+:focus-visible { outline:3px solid var(--black); outline-offset:2px; }
+.chip, .pick { display:inline-block; font:inherit; font-weight:600; padding:6px 16px; border:2px solid var(--black); border-radius:6px; color:var(--black); }
+.c-red { background:var(--red); } .c-blue { background:var(--blue); } .c-green { background:var(--green); } .c-yellow { background:var(--yellow); }
+.pick.sel { outline:3px solid var(--black); outline-offset:2px; }
+button:disabled { opacity:.4; cursor:not-allowed; }
+/* Python code colours (the only place outside the 5-colour palette) */
+.code { background:#1e1e1e; color:#d4d4d4; font:14px/1.5 Consolas, "Courier New", monospace; tab-size:4; }
+.blk { margin:0; padding:12px; border:2px solid var(--black); border-radius:6px; overflow:auto; white-space:pre; }
+.t-kw { color:#c586c0; } .t-fn { color:#dcdcaa; } .t-str { color:#98c379; } .t-com { color:#7f848e; } .t-num { color:#d19a66; }
+.ed { position:relative; height:280px; border:2px solid var(--black); border-radius:6px; background:#1e1e1e; overflow:hidden; }
+.ed-pre, .ed-ta { position:absolute; inset:0; width:100%; height:100%; margin:0; padding:12px; border:0; border-radius:0; font:14px/1.5 Consolas, "Courier New", monospace; tab-size:4; white-space:pre; letter-spacing:normal; min-height:0; }
+.ed-pre { overflow:hidden; pointer-events:none; color:#d4d4d4; }
+.ed-ta { overflow:auto; resize:none; background:transparent; color:transparent; caret-color:#ffffff; outline:none; }
+.ed-ta::placeholder { color:#7f848e; }
+.ed-ta::selection { background:rgba(120,160,255,.35); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">AKASCD</div>
+  <nav id="nav"></nav>
+</header>
+<main id="view"></main>
+
+<dialog id="auth">
+  <h2 id="authTitle">Login</h2>
+  <label for="u">Username</label>
+  <input id="u" autocomplete="username">
+  <label for="p1">Password (8-digit number)</label>
+  <input id="p1" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+  <div id="confirmBox">
+    <label for="p2">Confirm password (type it again)</label>
+    <input id="p2" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+  </div>
+  <div class="msg" id="authMsg"></div>
+  <div class="row" style="margin-top:14px">
+    <button class="main" id="authGo">Submit</button>
+    <button id="authSwap">Switch</button>
+    <button id="authClose">Cancel</button>
+  </div>
+</dialog>
+
+<script src="/shared.js"></script>
+<script>
+var $ = function (id) { return document.getElementById(id); };
+function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+
+var PY_KW = " def return if elif else for while in not and or is import from as try except finally with class pass break continue lambda raise assert del global nonlocal yield True False None ";
+function hl_(code) {
+  var frag = document.createDocumentFragment();
+  var re = /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?)|(#[^\n]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)|([\s\S])/g;
+  var m, last = "", plain = "";
+  function flush() { if (plain) { frag.appendChild(document.createTextNode(plain)); plain = ""; } }
+  function put(text, cls) { flush(); var sp = document.createElement("span"); sp.className = cls; sp.textContent = text; frag.appendChild(sp); }
+  while ((m = re.exec(code)) !== null) {
+    if (m[1]) { put(m[1], "t-str"); last = ""; }
+    else if (m[2]) { put(m[2], "t-com"); last = ""; }
+    else if (m[3]) { put(m[3], "t-num"); last = ""; }
+    else if (m[4]) {
+      var w = m[4], next = code.charAt(re.lastIndex);
+      if (PY_KW.indexOf(" " + w + " ") > -1) put(w, "t-kw");
+      else if (last === "def" || last === "class" || next === "(") put(w, "t-fn");
+      else plain += w;
+      last = w;
+    } else { plain += m[5]; if (!/\s/.test(m[5])) last = ""; }
+  }
+  flush();
+  return frag;
+}
+function codeBlock_(code) {
+  var pre = el("pre", "", "code blk");
+  pre.appendChild(hl_(code));
+  return pre;
+}
+function editor_() {
+  var box = el("div", "", "ed");
+  var pre = el("pre", "", "ed-pre code"); pre.setAttribute("aria-hidden", "true");
+  var ta = el("textarea", "", "ed-ta");
+  ta.spellcheck = false; ta.wrap = "off"; ta.placeholder = "Write your Python code here";
+  function paint() { pre.innerHTML = ""; pre.appendChild(hl_(ta.value + "\n")); pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; }
+  ta.oninput = paint;
+  ta.onscroll = function () { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; };
+  ta.onkeydown = function (e) {
+    if (e.key === "Tab") { e.preventDefault(); var p = ta.selectionStart; ta.value = ta.value.slice(0, p) + "    " + ta.value.slice(ta.selectionEnd); ta.selectionStart = ta.selectionEnd = p + 4; paint(); }
+  };
+  box.append(pre, ta); paint();
+  return { box: box, ta: ta };
+}
+
+var token = localStorage.getItem("cd_token") || "";
+var me = null, mode = "login", poll = null, tick = null;
+
+async function api(method, url, body) {
+  var NOSERVER = "Can't reach the game server. Start it with node server.js and open http://localhost:3000 (don't open the HTML file directly).";
+  var r;
+  try {
+    r = await fetch(url, { method: method, headers: { "Content-Type": "application/json", "x-token": token }, body: body ? JSON.stringify(body) : undefined });
+  } catch (e) { throw new Error(NOSERVER); }
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok) {
+    if (r.status === 401 && token) { token = ""; me = null; localStorage.removeItem("cd_token"); }
+    throw new Error(j.error || ([404, 405, 501].indexOf(r.status) > -1 ? NOSERVER : "Something went wrong."));
+  }
+  return j;
+}
+function clearTimers() { clearInterval(poll); clearInterval(tick); }
+
+/* ---------- auth ---------- */
+function openAuth(m) {
+  mode = m;
+  $("authTitle").textContent = m === "login" ? "Login" : "Register";
+  $("authSwap").textContent = m === "login" ? "Need an account?" : "Have an account?";
+  $("authMsg").textContent = "";
+  $("confirmBox").className = m === "register" ? "" : "hide";
+  $("auth").showModal();
+}
+$("authSwap").onclick = function () { openAuth(mode === "login" ? "register" : "login"); };
+$("authClose").onclick = function () { $("auth").close(); };
+$("authGo").onclick = async function () {
+  var u = $("u").value.trim(), a = $("p1").value, b = $("p2").value, msg = $("authMsg");
+  if (!u) { msg.textContent = "Enter a username."; return; }
+  if (!/^[0-9]{8}$/.test(a)) { msg.textContent = "The password must be exactly 8 digits."; return; }
+  if (mode === "register" && a !== b) { msg.textContent = "The two passwords don't match."; return; }
+  try {
+    var j = await api("POST", "/api/" + mode, { username: u, password: a, confirm: b });
+    token = j.token; me = j.me; localStorage.setItem("cd_token", token);
+    $("auth").close(); $("u").value = $("p1").value = $("p2").value = "";
+    go("home");
+  } catch (e) { msg.textContent = e.message; }
+};
+async function logout() {
+  try { await api("POST", "/api/logout", {}); } catch (e) { /* ignore */ }
+  token = ""; me = null; localStorage.removeItem("cd_token"); go("home");
+}
+
+/* ---------- nav and routing ---------- */
+function buildNav() {
+  var nav = $("nav"); nav.innerHTML = "";
+  var home = el("button", "Home"); home.onclick = function () { go("home"); };
+  nav.appendChild(home);
+  if (me) {
+    var sg = el("button", "Single"); sg.onclick = function () { go("single"); };
+    var mp = el("button", "Multiplayer"); mp.onclick = function () { go("multi"); };
+    var pr = el("button", me.name); pr.onclick = function () { go("profile"); };
+    var lo = el("button", "Logout"); lo.onclick = logout;
+    nav.append(sg, mp, pr, lo);
+  } else {
+    var li = el("button", "Login"); li.onclick = function () { openAuth("login"); };
+    var rg = el("button", "Register"); rg.className = "main"; rg.onclick = function () { openAuth("register"); };
+    nav.append(li, rg);
+  }
+}
+async function go(v, arg) {
+  clearTimers();
+  if (token && !me) { try { me = await api("GET", "/api/me"); } catch (e) { me = null; } }
+  buildNav();
+  var view = $("view"); view.innerHTML = "";
+  try {
+    if (v === "home" || !me) await home_(view);
+    else if (v === "profile") await profile_(view);
+    else if (v === "friend") await friend_(view, arg);
+    else if (v === "single") await single_(view);
+    else if (v === "multi") await multi_(view);
+    else if (v === "create") await create_(view);
+    else if (v === "join") await join_(view);
+    else if (v === "room") await room_(view, arg);
+    else if (v === "match") await match_(view, arg);
+    else if (v === "result") await result_(view, arg);
+  } catch (e) { view.appendChild(el("div", e.message, "card red")); }
+}
+
+/* ---------- home, profile ---------- */
+async function home_(v) {
+  var c = el("div", "", "card blue");
+  c.append(el("h1", "Race a friend. Write Python. Win."));
+  c.append(el("p", "AKASCD, also known as Simple Code Duel."));
+  c.append(el("p", "Two players get the same random Python task and a time limit set by the host. Each answer is scored out of 10."));
+  v.appendChild(c);
+  try {
+    var s = await api("GET", "/api/stats");
+    var cnt = el("div", "", "card green");
+    cnt.append(el("h2", s.players + (s.players === 1 ? " player" : " players") + " registered"));
+    v.appendChild(cnt);
+  } catch (e) { /* stats are optional */ }
+  var r = el("div", "", "card");
+  r.append(el("h3", "How scoring works"));
+  r.append(el("p", "Up to 10 points: structure 3, task requirements 4, style 3."));
+  r.append(el("p", "After you submit, the reviewer reads your code for 15 seconds, then shows what earned points and what lost them. Half-finished code still gets some points. Random text or code that is not Python gets 0."));
+  r.append(el("p", "The time limit still applies and your code is submitted when it runs out."));
+  r.append(el("p", "If both players get the same score, it is a tie. Every point you score is added to your total points."));
+  v.appendChild(r);
+  if (!me) v.appendChild(el("div", "Log in or register (top right) to play.", "card red"));
+}
+
+function statsCard(u) {
+  var c = el("div", "", "card");
+  c.append(el("h2", u.name));
+  c.append(el("p", "Account created: " + new Date(u.created).toLocaleDateString()));
+  var s = el("div", "", "stats");
+  var w = el("div", "", "stat"); w.style.background = "var(--green)"; w.append(el("b", u.wins), el("span", "Wins"));
+  var l = el("div", "", "stat"); l.style.background = "var(--red)"; l.append(el("b", u.losses), el("span", "Losses"));
+  var t = el("div", "", "stat"); t.style.background = "var(--blue)"; t.append(el("b", u.ties || 0), el("span", "Ties"));
+  var p = el("div", "", "stat"); p.style.background = "var(--yellow)"; p.append(el("b", u.points || 0), el("span", "Total points"));
+  s.append(w, l, t, p); c.appendChild(s);
+  return c;
+}
+
+async function profile_(v) {
+  me = await api("GET", "/api/me");
+  v.appendChild(statsCard(me));
+
+  var f = el("div", "", "card");
+  f.append(el("h3", "Friends"));
+  if (!me.friends.length) f.append(el("p", "No friends yet."));
+  me.friends.forEach(function (n) {
+    var row = el("div", "", "row"); row.style.marginBottom = "6px";
+    row.append(el("span", n));
+    var vw = el("button", "View profile"); vw.onclick = function () { go("friend", n); };
+    var rm = el("button", "Remove"); rm.onclick = async function () { await api("POST", "/api/friends/remove", { name: n }); go("profile"); };
+    row.append(vw, rm); f.appendChild(row);
+  });
+  var inp = el("input"); inp.placeholder = "Friend's username"; inp.style.maxWidth = "260px";
+  var add = el("button", "Add friend"); add.className = "main";
+  var msg = el("div", "", "msg");
+  add.onclick = async function () {
+    try { await api("POST", "/api/friends/add", { name: inp.value }); go("profile"); } catch (e) { msg.textContent = e.message; }
+  };
+  var row2 = el("div", "", "row"); row2.append(inp, add);
+  f.append(row2, msg);
+  v.appendChild(f);
+
+  var inv = el("div", "", "card");
+  inv.append(el("h3", "Inventory"));
+  if (!me.inv.length) inv.append(el("p", "Finished code is saved here. Nothing yet."));
+  me.inv.forEach(function (it) {
+    var d = el("details"); d.style.marginBottom = "8px";
+    var sm = el("summary", it.diff + " - " + it.total + "/10 - " + new Date(it.date).toLocaleDateString());
+    var pre = codeBlock_(it.code);
+    var del = el("button", "Delete"); del.className = "bad";
+    del.onclick = async function () { await api("POST", "/api/inventory/delete", { id: it.id }); go("profile"); };
+    d.append(sm, el("p", it.task), pre, del); inv.appendChild(d);
+  });
+  v.appendChild(inv);
+}
+
+async function friend_(v, name) {
+  var back = el("button", "Back to my profile"); back.style.marginBottom = "14px";
+  back.onclick = function () { go("profile"); };
+  v.appendChild(back);
+  var u = await api("GET", "/api/users/" + encodeURIComponent(name));
+  v.appendChild(statsCard(u));
+  var f = el("div", "", "card");
+  f.append(el("h3", "Friends"));
+  f.append(el("p", u.friends.length ? u.friends.join(", ") : "No friends yet."));
+  v.appendChild(f);
+}
+
+/* ---------- single player and multiplayer menus ---------- */
+var COLOURS = ["red", "blue", "green", "yellow"];
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function settings_(c) {
+  c.append(el("label", "Difficulty"));
+  var diff = el("select");
+  [["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]].forEach(function (d) { var o = el("option", d[1]); o.value = d[0]; diff.appendChild(o); });
+  diff.value = "normal"; c.appendChild(diff);
+  c.append(el("label", "Category"));
+  var cat = el("select");
+  ["Any"].concat(Shared.CATS).forEach(function (x) { var o = el("option", x); o.value = x; cat.appendChild(o); });
+  c.appendChild(cat);
+  c.append(el("label", "Time limit (minutes)"));
+  var tm = el("input"); tm.type = "number"; tm.min = 1; tm.max = 60; tm.value = 10; c.appendChild(tm);
+  return { diff: diff, cat: cat, tm: tm };
+}
+
+async function resume_(v) {
+  var L = await api("GET", "/api/lobby");
+  L.active.forEach(function (m) {
+    var k = el("div", "", "card green");
+    k.append(el("h3", m.mode === "solo" ? "Single player match in progress" : "Multiplayer match in progress"));
+    k.append(el("p", m.cat + ", " + m.diff));
+    var pl = el("button", "Play now"); pl.className = "main";
+    pl.onclick = function () { go("match", m.id); };
+    k.appendChild(pl); v.appendChild(k);
+  });
+}
+
+async function single_(v) {
+  var c = el("div", "", "card");
+  c.append(el("h2", "Single player"));
+  var f = settings_(c);
+  var start = el("button", "Start"); start.className = "main"; start.style.marginTop = "14px";
+  var msg = el("div", "", "msg");
+  start.onclick = async function () {
+    try {
+      var j = await api("POST", "/api/match/new", { diff: f.diff.value, cat: f.cat.value, minutes: f.tm.value });
+      go("match", j.id);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  c.append(start, msg); v.appendChild(c);
+  await resume_(v);
+}
+
+async function multi_(v) {
+  var c = el("div", "", "card");
+  c.append(el("h2", "Multiplayer"));
+  c.append(el("p", "Play 1 vs 1 with a friend. One player creates a room. The other joins with the room's 4-digit code and colour."));
+  var row = el("div", "", "row"); row.style.marginTop = "14px";
+  var cr = el("button", "Create a room"); cr.className = "main"; cr.onclick = function () { go("create"); };
+  var jn = el("button", "Join a room"); jn.onclick = function () { go("join"); };
+  row.append(cr, jn); c.appendChild(row); v.appendChild(c);
+  await resume_(v);
+}
+
+async function create_(v) {
+  var c = el("div", "", "card");
+  c.append(el("h2", "Create a room"));
+  c.append(el("p", "You are the host. You choose the settings and start the match."));
+  var f = settings_(c);
+  var go_ = el("button", "Create room"); go_.className = "main"; go_.style.marginTop = "14px";
+  var msg = el("div", "", "msg");
+  go_.onclick = async function () {
+    try {
+      var j = await api("POST", "/api/room/create", { diff: f.diff.value, cat: f.cat.value, minutes: f.tm.value });
+      go("room", j.code);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  c.append(go_, msg); v.appendChild(c);
+}
+
+async function join_(v) {
+  var c = el("div", "", "card");
+  c.append(el("h2", "Join a room"));
+  c.append(el("label", "Room code (4 digits)"));
+  var code = el("input"); code.inputMode = "numeric"; code.maxLength = 4; code.placeholder = "1234"; code.style.maxWidth = "160px";
+  c.appendChild(code);
+  c.append(el("label", "Room colour"));
+  var chosen = "", row = el("div", "", "row");
+  var btns = COLOURS.map(function (col) {
+    var b = el("button", cap(col), "pick c-" + col);
+    b.onclick = function () { chosen = col; btns.forEach(function (x) { x.className = x.className.replace(" sel", ""); }); b.className += " sel"; };
+    row.appendChild(b); return b;
+  });
+  c.appendChild(row);
+  var go_ = el("button", "Join room"); go_.className = "main"; go_.style.marginTop = "14px";
+  var msg = el("div", "", "msg");
+  go_.onclick = async function () {
+    if (!/^[0-9]{4}$/.test(code.value)) { msg.textContent = "Enter the 4-digit code."; return; }
+    if (!chosen) { msg.textContent = "Choose the room colour."; return; }
+    try {
+      var j = await api("POST", "/api/room/join", { code: code.value, colour: chosen });
+      go("room", j.code);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  c.append(go_, msg); v.appendChild(c);
+}
+
+async function room_(v, code) {
+  var r = await api("GET", "/api/room/" + code);
+  if (r.status === "active" && r.matchId) { go("match", r.matchId); return; }
+  var isHost = r.host === me.name;
+  var c = el("div", "", "card");
+  c.append(el("h2", isHost ? "Your room" : "Room joined"));
+  var big = el("div", r.code, "timer"); c.appendChild(big);
+  c.append(el("span", cap(r.colour), "chip c-" + r.colour));
+  c.append(el("p", isHost ? "Tell your friend this code and colour." : "Host: " + r.host));
+  c.append(el("p", r.cat + ", " + r.diff + ", " + r.minutes + " min"));
+  var status = el("p", "", "msg"); c.appendChild(status);
+  var row = el("div", "", "row");
+  var start = el("button", "Start match"); start.className = "main";
+  start.onclick = async function () {
+    try { var j = await api("POST", "/api/room/" + code + "/start", {}); go("match", j.matchId); } catch (e) { status.textContent = e.message; }
+  };
+  var leave = el("button", "Leave room"); leave.className = "bad";
+  leave.onclick = async function () { try { await api("POST", "/api/room/" + code + "/leave", {}); } catch (e) { /* already gone */ } go("multi"); };
+  if (isHost) row.appendChild(start);
+  row.appendChild(leave); c.appendChild(row); v.appendChild(c);
+  function paint(x) {
+    status.textContent = x.guest ? (isHost ? x.guest + " joined. Press Start when you are ready." : "Waiting for the host to start...") : "Waiting for a friend to join...";
+    start.disabled = !x.guest;
+  }
+  paint(r);
+  poll = setInterval(async function () {
+    try {
+      var n = await api("GET", "/api/room/" + code);
+      if (n.status === "active" && n.matchId) { clearInterval(poll); go("match", n.matchId); return; }
+      paint(n);
+    } catch (e) {
+      clearInterval(poll); v.innerHTML = "";
+      v.appendChild(el("div", "The room was closed.", "card red"));
+      var back = el("button", "Back to Multiplayer"); back.onclick = function () { go("multi"); }; v.appendChild(back);
+    }
+  }, 1500);
+}
+
+/* ---------- the match ---------- */
+async function match_(v, id) {
+  var m = await api("GET", "/api/match/" + id);
+  if (m.mySub) { feedback_(v, m, m.mySub); return; }
+  if (m.status !== "active") {
+    v.appendChild(el("div", "This match is not active any more.", "card red"));
+    return;
+  }
+  var off = m.serverNow - Date.now();
+  var end = m.startedAt + m.limit * 1000;
+  var card = el("div", "", "card");
+  card.append(el("h2", "Your turn, " + me.name));
+  card.append(el("p", m.task));
+  card.append(el("p", "Category: " + m.cat + ". Difficulty: " + m.diff + "."));
+  var tmr = el("div", "", "timer"); card.appendChild(tmr);
+  var ed = editor_(), ta = ed.ta;
+  card.appendChild(ed.box);
+  var sub = el("button", "Submit code"); sub.className = "main"; sub.style.marginTop = "12px";
+  var msg = el("div", "", "msg");
+  card.append(sub, msg); v.appendChild(card);
+
+  var done = false;
+  async function finish() {
+    if (done) return; done = true; clearInterval(tick);
+    var code = ta.value;
+    try {
+      var j = await api("POST", "/api/match/" + id + "/submit", { code: code });
+      review_(v, m, code, j.sub);
+    } catch (e) { msg.textContent = e.message; }
+  }
+  function draw() {
+    var left = Math.max(0, (end - (Date.now() + off)) / 1000);
+    tmr.textContent = Math.floor(left / 60) + ":" + String(Math.floor(left % 60)).padStart(2, "0");
+    if (left <= 0) finish();
+  }
+  draw(); tick = setInterval(draw, 250); sub.onclick = finish;
+}
+
+function review_(v, m, code, sub) {
+  v.innerHTML = ""; clearInterval(tick);
+  var c = el("div", "", "card blue");
+  c.append(el("h2", "The reviewer is reading your code, " + me.name));
+  var step = el("p", "Checking structure..."); c.appendChild(step);
+  var left = el("div", "15s", "timer"); c.appendChild(left);
+  var bar = el("div"); bar.style.cssText = "height:14px;border:2px solid var(--black);border-radius:8px;background:var(--white);overflow:hidden";
+  var fill = el("div"); fill.style.cssText = "height:100%;width:0;background:var(--green)";
+  bar.appendChild(fill); c.appendChild(bar);
+  var pre = codeBlock_(code); pre.style.marginTop = "14px";
+  c.appendChild(pre); v.appendChild(c);
+  var t0 = Date.now(), total = 15;
+  tick = setInterval(function () {
+    var s = (Date.now() - t0) / 1000;
+    if (s >= total) { clearInterval(tick); v.innerHTML = ""; feedback_(v, m, sub); return; }
+    left.textContent = Math.ceil(total - s) + "s";
+    fill.style.width = (s / total * 100) + "%";
+    step.textContent = s < 5 ? "Checking structure..." : s < 10 ? "Checking the task requirements..." : "Checking style and adding up points...";
+  }, 200);
+}
+
+function feedback_(v, m, sub) {
+  var c = el("div", "", "card " + (sub.total >= 6 ? "green" : sub.total >= 3 ? "blue" : "red"));
+  c.append(el("h2", me.name + ": " + sub.total + " / 10"));
+  if (sub.zero) c.append(el("p", "0 points. " + sub.zero, "msg"));
+  sub.groups.forEach(function (g) {
+    c.append(el("h3", g.title + ": " + g.got + " / " + g.max));
+    c.append(el("p", "Points given: " + g.got + (g.max - g.got ? ". Points cut: " + (g.max - g.got) + "." : ".")));
+    g.items.forEach(function (it) {
+      c.append(el("div", (it.ok ? "Good" : "Mistake") + " - " + it.where + ": " + it.text, "note " + (it.ok ? "ok" : "no")));
+    });
+  });
+  var nx = el("button", m.mode === "solo" ? "Back to Single" : "See results"); nx.className = "main"; nx.style.marginTop = "14px";
+  nx.onclick = function () { go(m.mode === "solo" ? "single" : "result", m.id); };
+  c.appendChild(nx); v.appendChild(c);
+}
+
+async function result_(v, id) {
+  var m = await api("GET", "/api/match/" + id);
+  if (m.status !== "done") {
+    var w = el("div", "", "card blue");
+    w.append(el("h2", "Waiting for your opponent"));
+    w.append(el("p", "Results show up when both players have submitted or the time is up."));
+    v.appendChild(w);
+    poll = setInterval(async function () {
+      try { var n = await api("GET", "/api/match/" + id); if (n.status === "done") { clearInterval(poll); go("result", id); } } catch (e) { /* keep waiting */ }
+    }, 3000);
+    return;
+  }
+  var a = m.results[0], b = m.results[1];
+  var c = el("div", "", "card " + (m.winner ? "green" : "blue"));
+  c.append(el("h2", m.winner ? m.winner + " wins" : "It's a tie"));
+  var t = el("table");
+  var h = el("tr"); ["", a.name, b.name].forEach(function (x) { h.appendChild(el("th", x)); }); t.appendChild(h);
+  var tr = el("tr"); tr.append(el("td", "Score (10)"), el("td", a.total), el("td", b.total)); t.appendChild(tr);
+  c.appendChild(t);
+  var again = el("button", "Back to Multiplayer"); again.className = "main"; again.style.marginTop = "14px";
+  again.onclick = function () { go("multi"); };
+  c.appendChild(again); v.appendChild(c);
+}
+
+go("home");
+
+</script>
+</body>
+</html>
